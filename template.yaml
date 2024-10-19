@@ -33,7 +33,11 @@ Resources:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
           Properties:
             Path: /hello
-            Method: GET
+            Method: POST
+            Cors:
+             AllowOrigins: "'*'"
+             AllowHeaders: "'Content-Type, Authorization'"
+             AllowMethods: "'GET,POST,OPTIONS'"
       Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
         Variables:
           PARAM1: VALUE
