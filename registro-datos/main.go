@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 )
 
-//var base64Data = "MSwyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMjQ1LDIKMiwyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMTkwLDQKMywyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMTkyLDQKNCwyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMTkzLDM="
+// var base64Data = "MSwyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMjQ1LDIKMiwyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMTkwLDQKMywyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMTkyLDQKNCwyMDI0LTA5LTMwLDIwMjQtMDktMTMsZmFsc2UsMTkzLDM="
 var endpointURL = "https://7074-170-78-41-251.ngrok-free.app/v1/periodos-rol-usuarios/"
 
 // type Response struct {
@@ -31,7 +31,7 @@ type Response struct {
 	FechaInicio string `json:"FechaInicio"`
 	Finalizado  bool   `json:"Finalizado"`
 	RolId       struct {
-		Id                  int `json:"Id"`
+		Id int `json:"Id"`
 	} `json:"RolId"`
 	UsuarioId struct {
 		Id int `json:"Id"`
@@ -76,11 +76,11 @@ func procesarCSV(registros [][]string) (string, error) {
 	for _, registro := range registros {
 
 		id := registro[0]
-		fechaFin:= registro[1]
-		fechaInicio:= registro[2]
-		finalizadoStr:= registro[3]
-		rolIdInt:= registro[4]
-		usuarioIdInt:= registro[5]
+		fechaFin := registro[1]
+		fechaInicio := registro[2]
+		finalizadoStr := registro[3]
+		rolIdInt := registro[4]
+		usuarioIdInt := registro[5]
 
 		finalizado, err := strconv.ParseBool(finalizadoStr)
 
@@ -116,31 +116,39 @@ func procesarCSV(registros [][]string) (string, error) {
 	}
 
 	return "Datos enviados correctamente", nil
-	
+
 }
 
 // Función que será llamada por Lambda
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 
-	/*headers := map[string]string{
-		"Content-Type":                 "application/json",
-		"Access-Control-Allow-Origin":  "'*'",  
-		"Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT",  
-		"Access-Control-Allow-Headers": "Authorization, Content-Type",  
-		"Access-Control-Allow-Credentials": "true",
-	}*/
+	headers := map[string]string{
+		"Access-Control-Allow-Origin":  "http://localhost:4200",
+		"Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+		"Access-Control-Allow-Headers": "Content-Type, Authorization",
+	}
 
-	
+	response := map[string]interface{}{
+		"message": "Hello, world!",
+	}
+	jsonStr, _ := json.Marshal(response)
+
+	fmt.Print("request.HTTPMethod")
+	fmt.Print(request.HTTPMethod)
+
 	if request.HTTPMethod == "OPTIONS" {
 		return events.APIGatewayProxyResponse{
 			StatusCode: http.StatusOK,
-			Headers: map[string]string{
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":"Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-				"Access-Control-Allow-Credentials": "true",
-				"Content-Type": "application/json",
-			},
-			Body:       "",
+			Headers:    headers,
+			Body:       string(jsonStr),
+		}, nil
+	}
+
+	if request.HTTPMethod == "POST" {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusCreated,
+			Headers:    headers,
+			Body:       string(jsonStr),
 		}, nil
 	}
 
@@ -149,19 +157,14 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	}
 
 	// Decodificar el cuerpo de la solicitud
-    err := json.Unmarshal([]byte(request.Body), &input)
-    if err != nil {
-        return events.APIGatewayProxyResponse{
-            StatusCode: 400,
-			Headers: map[string]string{
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":"Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-				"Access-Control-Allow-Credentials": "true",
-				"Content-Type": "application/json",
-			},
-            Body:       fmt.Sprintf("Error al procesar el cuerpo del request: %v", err),
-        }, nil
-    }
+	err := json.Unmarshal([]byte(request.Body), &input)
+	if err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: 400,
+			Headers:    headers,
+			Body:       fmt.Sprintf("Error al procesar el cuerpo del request: %v", err),
+		}, nil
+	}
 
 	// Decodificar los datos base64
 	data, err := decodificarBase64(input.Base64Data)
@@ -169,12 +172,7 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		log.Printf("Error: %v", err)
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
-			Headers: map[string]string{
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":"Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-				"Access-Control-Allow-Credentials": "true",
-				"Content-Type": "application/json",
-			},
+			Headers:    headers,
 			Body:       err.Error(),
 		}, nil
 	}
@@ -185,12 +183,7 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		log.Printf("Error: %v", err)
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
-			Headers: map[string]string{
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":"Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-				"Access-Control-Allow-Credentials": "true",
-				"Content-Type": "application/json",
-			},
+			Headers:    headers,
 			Body:       err.Error(),
 		}, nil
 	}
@@ -201,12 +194,7 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		log.Printf("Error: %v", err)
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
-			Headers: map[string]string{
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":"Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-				"Access-Control-Allow-Credentials": "true",
-				"Content-Type": "application/json",
-			},
+			Headers:    headers,
 			Body:       err.Error(),
 		}, nil
 	}
@@ -214,12 +202,7 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	// Respuesta
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
-		Headers: map[string]string{
-			"Access-Control-Allow-Origin": "*",
-			"Access-Control-Allow-Headers":"Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
-			"Access-Control-Allow-Credentials": "true",
-			"Content-Type": "application/json",
-		},
+		Headers:    headers,
 		Body:       resultado,
 	}, nil
 }

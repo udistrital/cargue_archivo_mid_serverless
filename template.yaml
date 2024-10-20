@@ -1,60 +1,37 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  sam_prueba
+  Lambda para procesamiento de archivos y registro de datos
 
-  Sample SAM Template for sam_prueba
+  Template SAM para procesamiento de archivos y registro de datos
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    Timeout: 17
-    MemorySize: 10
+    Timeout: 60
+    MemorySize: 128
 
-    Tracing: Active
-    # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
-    LoggingConfig:
-      LogFormat: JSON
-  Api:
-    TracingEnabled: true
 Resources:
   HelloWorldFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
-    Metadata:
-      BuildMethod: go1.x
+    Type: AWS::Serverless::Function
     Properties:
-      CodeUri: hello-world/
-      Handler: bootstrap
-      Runtime: provided.al2
+      CodeUri: registro-datos/
+      Handler: registro-datos
+      Runtime: go1.x
       Architectures:
       - x86_64
       Events:
-        CatchAll:
+        ProcessFile:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
           Properties:
             Path: /hello
             Method: POST
-            Cors:
-             AllowOrigins: "'*'"
-             AllowHeaders: "'Content-Type, Authorization'"
-             AllowMethods: "'GET,POST,OPTIONS'"
-      Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
-        Variables:
-          PARAM1: VALUE
+        OptionsProcess: # No desplegar este event
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: OPTIONS
 
-  ApplicationResourceGroup:
-    Type: AWS::ResourceGroups::Group
-    Properties:
-      Name:
-        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
-      ResourceQuery:
-        Type: CLOUDFORMATION_STACK_1_0
-  ApplicationInsightsMonitoring:
-    Type: AWS::ApplicationInsights::Application
-    Properties:
-      ResourceGroupName:
-        Ref: ApplicationResourceGroup
-      AutoConfigurationEnabled: 'true'
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
