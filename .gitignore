@@ -1,1 +1,11 @@
-.aws-sam
+.aws-sam/
+
+*__pycache__/
+
+*.toml
+
+# IDEs
+.idea/
+
+venv/
+env.json
