@@ -1,5 +1,9 @@
 import json
 import os
+import base64
+import io
+import pandas as pd
+import requests
 
 
 def get_headers():
@@ -58,6 +62,56 @@ def lambda_handler(event, context):
             body, error = parse_body(event)
             if error is None:
                 # Implementa tu código para registrar los datos del archivo
+                archivo_base64 = body.get("base64data")
+                if not archivo_base64:
+                    return format_response(
+                        None,
+                        "Archivo base64 no encontrado",
+                        400,
+                        False
+                    )
+                #Decodificar base64
+                archivo_decodificado = base64.b64decode(archivo_base64)
+                archivo_en_memoria = io.BytesIO(archivo_decodificado)
+
+                #leer el archivo
+                df = pd.read_excel(archivo_en_memoria)
+                df = df.dropna(how='all')
+                
+                print(df)
+
+                url = "https://fde7-170-78-41-251.ngrok-free.app/v1/periodos-rol-usuarios/"
+
+                for index, row in df.iterrows():
+                    if row.isnull().any():
+                        print(f"Fila {index} contiene celdas vacías.")
+                        continue
+
+                    fecha_inicio = row['FechaInicio'].strftime('%Y-%m-%d')
+                    fecha_fin = row['FechaFin'].strftime('%Y-%m-%d')
+
+                    payload ={
+                        "FechaInicio": fecha_inicio,
+                        "FechaFin": fecha_fin,
+                        "Finalizado": row["Finalizado"],
+                        "RolId": {"Id": int(row["Rol"])},
+                        "UsuarioId": {"Id": int(row["Usuario"])}
+                    }
+
+                    response = requests.post(url, json=payload)
+
+                    if response.status_code in [200, 201]:
+                        print(f"Fila {index} registrada correctamente.")
+                    else:
+                        print(f"Error fila {index} no se pudo registrar, estado: {response.status_code}.")    
+                
+                return format_response(
+                    None,
+                    "Documento procesado correctamente",
+                    200,
+                    True
+                )
+
                 result = {}
                 message = "Documento procesado correctamente"
                 return format_response(
