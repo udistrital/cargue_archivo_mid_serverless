@@ -54,6 +54,106 @@ def format_response(result, message: str, status_code: int, success: bool) -> di
         response['headers'] = headers
     return response
 
+def decode_base64(base64_data: str) -> io.BytesIO:
+    """
+    Decodifica el archivo base64.
+    """
+    try:
+        archivo_decodificado = base64.b64decode(base64_data)
+        return io.BytesIO(archivo_decodificado)
+    except Exception as ex:
+        print(f"Error al decodificar base64. : {str(ex)}")
+        return None
+
+def read_file(file: io.BytesIO) -> pd.DataFrame:
+    """
+    Lee el archivo decodificado en memoria.
+    """
+    try:
+        df = pd.read_excel(file)
+        df = df.dropna(how='all')
+        print(df)
+        return df
+    except Exception as ex:
+        print(f"Error al leer el archivo. : {str(ex)}")
+        return None
+    
+def construct_url (service: str, endpoint: str) -> str:
+    """
+    Construye la URL para la petición.
+    """
+    return f"{service.rstrip('/')}/{endpoint.lstrip('/')}"
+
+def prepare_payload(row, structure):
+    """
+    Crea el payload para la petición.
+    """
+    payload = {}
+    try:
+        for key, config in structure.items():
+            nombre_columna = config.get('nombre_columna')
+            if nombre_columna not in row:
+                print(f"La columna {nombre_columna} no existe en el archivo.")
+                continue
+
+            value = row[nombre_columna]
+
+            if pd.isna(value) or value is None:
+                if not config.get("required"):
+                    continue
+                else:                    
+                    raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
+
+            parse_type = config.get("parse")
+            if parse_type not in [None, ""]:
+                if parse_type == "int":
+                    value = int(value)
+                elif parse_type == "booleano":
+                    value = bool(value)
+                elif parse_type == "date":
+                    value = value.strftime('%Y-%m-%d')
+
+            keys = key.split(".")
+            temp = payload
+            for k in keys[:-1]:
+                if k not in temp:
+                    temp[k] = {}
+                temp = temp[k]
+            temp[keys[-1]] = value
+
+        return payload
+    
+    except Exception as ex:
+        print(f"Error al preparar el payload. : {str(ex)}")
+
+
+def send_request(payload, url: str) -> bool:
+    """
+    Envia cada fila de la tabla al endpoint.
+    """
+    try:
+        response = requests.post(url, json=payload)
+        return response.status_code in [200, 201]
+
+    except Exception as ex:
+        print(f"Error al enviar la petición. : {str(ex)}")
+
+def process_file(df: pd.DataFrame, structure: dict, url: str):
+    """
+    Procesa cada fila de la tabla.
+    """
+    try:
+        for index, row in df.iterrows():
+
+            payload = prepare_payload(row, structure)
+            success = send_request(payload, url)
+            if success:
+                print(f"Fila {index} registrada correctamente.")
+            else:
+                print(f"Error fila {index} no se pudo registrar.")
+
+    except Exception as ex:
+        print(f"Error al procesar el archivo. : {str(ex)}")
 
 def lambda_handler(event, context):
     try:
@@ -67,44 +167,36 @@ def lambda_handler(event, context):
                     return format_response(
                         None,
                         "Archivo base64 no encontrado",
+                        400,  
+                        False
+                    )
+                
+                archivo_decodificado = decode_base64(archivo_base64)
+                df = read_file(archivo_decodificado)
+                if df is None:
+                   return format_response(
+                       None,
+                       "Error al leer el archivo.",
+                       500,
+                       False
+                   )
+                
+                service = body.get("service")
+                endpoint = body.get("endpoint")
+                structure = body.get("structure")
+
+                if not service or not endpoint or not structure:
+                    return format_response(
+                        None,
+                        "Faltan parametros en la estructura",
                         400,
                         False
                     )
-                #Decodificar base64
-                archivo_decodificado = base64.b64decode(archivo_base64)
-                archivo_en_memoria = io.BytesIO(archivo_decodificado)
-
-                #leer el archivo
-                df = pd.read_excel(archivo_en_memoria)
-                df = df.dropna(how='all')
                 
-                print(df)
+                url = construct_url(service, endpoint)
+                print(url)
+                process_file(df, structure, url)
 
-                url = "https://fde7-170-78-41-251.ngrok-free.app/v1/periodos-rol-usuarios/"
-
-                for index, row in df.iterrows():
-                    if row.isnull().any():
-                        print(f"Fila {index} contiene celdas vacías.")
-                        continue
-
-                    fecha_inicio = row['FechaInicio'].strftime('%Y-%m-%d')
-                    fecha_fin = row['FechaFin'].strftime('%Y-%m-%d')
-
-                    payload ={
-                        "FechaInicio": fecha_inicio,
-                        "FechaFin": fecha_fin,
-                        "Finalizado": row["Finalizado"],
-                        "RolId": {"Id": int(row["Rol"])},
-                        "UsuarioId": {"Id": int(row["Usuario"])}
-                    }
-
-                    response = requests.post(url, json=payload)
-
-                    if response.status_code in [200, 201]:
-                        print(f"Fila {index} registrada correctamente.")
-                    else:
-                        print(f"Error fila {index} no se pudo registrar, estado: {response.status_code}.")    
-                
                 return format_response(
                     None,
                     "Documento procesado correctamente",
