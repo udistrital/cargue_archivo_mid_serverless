@@ -59,8 +59,8 @@ def decode_base64(base64_data: str) -> io.BytesIO:
     Decodifica el archivo base64.
     """
     try:
-        archivo_decodificado = base64.b64decode(base64_data)
-        return io.BytesIO(archivo_decodificado)
+        decoded_file = base64.b64decode(base64_data)
+        return io.BytesIO(decoded_file)
     except Exception as ex:
         print(f"Error al decodificar base64. : {str(ex)}")
         return None
@@ -78,11 +78,39 @@ def read_file(file: io.BytesIO) -> pd.DataFrame:
         print(f"Error al leer el archivo. : {str(ex)}")
         return None
     
-def construct_url (service: str, endpoint: str) -> str:
+def validate_data(df: pd.DataFrame, structure: dict) -> bool:
+    """
+    Verifica que las columnas en el archivo coincidan con las de la estructura.
+    """    
+    expected_columns = set([config.get('file_name_column') for config in structure.values()])
+    file_columns = set(df.columns)
+    
+    missing_columns = expected_columns - file_columns
+
+    if missing_columns:
+        print(f"Error: Faltan las siguientes columnas en el archivo: {missing_columns}")
+        return False
+
+    return True
+    
+def build_url (service: str, endpoint: str) -> str:
     """
     Construye la URL para la petición.
     """
     return f"{service.rstrip('/')}/{endpoint.lstrip('/')}"
+
+def parse_value(value, parse_type):
+    """
+    Parsea el valor de la celda.
+    """
+    if parse_type == "int":
+        return int(value)
+    elif parse_type == "booleano":
+        return bool(value)
+    elif parse_type == "date":
+        return value.strftime('%Y-%m-%d')
+    else:
+        return value
 
 def prepare_payload(row, structure):
     """
@@ -91,12 +119,9 @@ def prepare_payload(row, structure):
     payload = {}
     try:
         for key, config in structure.items():
-            nombre_columna = config.get('nombre_columna')
-            if nombre_columna not in row:
-                print(f"La columna {nombre_columna} no existe en el archivo.")
-                continue
+            file_name_column = config.get('file_name_column')
 
-            value = row[nombre_columna]
+            value = row[file_name_column]
 
             if pd.isna(value) or value is None:
                 if not config.get("required"):
@@ -105,13 +130,8 @@ def prepare_payload(row, structure):
                     raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
 
             parse_type = config.get("parse")
-            if parse_type not in [None, ""]:
-                if parse_type == "int":
-                    value = int(value)
-                elif parse_type == "booleano":
-                    value = bool(value)
-                elif parse_type == "date":
-                    value = value.strftime('%Y-%m-%d')
+            value = parse_value(value, parse_type)
+            
 
             keys = key.split(".")
             temp = payload
@@ -121,6 +141,8 @@ def prepare_payload(row, structure):
                 temp = temp[k]
             temp[keys[-1]] = value
 
+
+        print(payload)
         return payload
     
     except Exception as ex:
@@ -137,6 +159,7 @@ def send_request(payload, url: str) -> bool:
 
     except Exception as ex:
         print(f"Error al enviar la petición. : {str(ex)}")
+        return False
 
 def process_file(df: pd.DataFrame, structure: dict, url: str):
     """
@@ -162,8 +185,8 @@ def lambda_handler(event, context):
             body, error = parse_body(event)
             if error is None:
                 # Implementa tu código para registrar los datos del archivo
-                archivo_base64 = body.get("base64data")
-                if not archivo_base64:
+                base64_file = body.get("base64data")
+                if not base64_file:
                     return format_response(
                         None,
                         "Archivo base64 no encontrado",
@@ -171,8 +194,8 @@ def lambda_handler(event, context):
                         False
                     )
                 
-                archivo_decodificado = decode_base64(archivo_base64)
-                df = read_file(archivo_decodificado)
+                decoded_file = decode_base64(base64_file)
+                df = read_file(decoded_file)
                 if df is None:
                    return format_response(
                        None,
@@ -193,7 +216,15 @@ def lambda_handler(event, context):
                         False
                     )
                 
-                url = construct_url(service, endpoint)
+                if not validate_data(df, structure):
+                    return format_response(
+                        None,
+                        "Las columnas del archivo no coinciden con la estructura esperada.",
+                        400,
+                        False
+                    )
+                
+                url = build_url(service, endpoint)
                 print(url)
                 process_file(df, structure, url)
 
