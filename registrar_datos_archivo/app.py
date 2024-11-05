@@ -54,6 +54,129 @@ def format_response(result, message: str, status_code: int, success: bool) -> di
         response['headers'] = headers
     return response
 
+def decode_base64(base64_data: str) -> io.BytesIO:
+    """
+    Decodifica el archivo base64.
+    """
+    try:
+        decoded_file = base64.b64decode(base64_data)
+        return io.BytesIO(decoded_file)
+    except Exception as ex:
+        print(f"Error al decodificar base64. : {str(ex)}")
+        return None
+
+def read_file(file: io.BytesIO) -> pd.DataFrame:
+    """
+    Lee el archivo decodificado en memoria.
+    """
+    try:
+        df = pd.read_excel(file)
+        df = df.dropna(how='all')
+        print(df)
+        return df
+    except Exception as ex:
+        print(f"Error al leer el archivo. : {str(ex)}")
+        return None
+    
+def validate_data(df: pd.DataFrame, structure: dict) -> bool:
+    """
+    Verifica que las columnas en el archivo coincidan con las de la estructura.
+    """    
+    expected_columns = set([config.get('file_name_column') for config in structure.values()])
+    file_columns = set(df.columns)
+    
+    missing_columns = expected_columns - file_columns
+
+    if missing_columns:
+        print(f"Error: Faltan las siguientes columnas en el archivo: {missing_columns}")
+        return False
+
+    return True
+    
+def build_url (service: str, endpoint: str) -> str:
+    """
+    Construye la URL para la petición.
+    """
+    return f"{service.rstrip('/')}/{endpoint.lstrip('/')}"
+
+def parse_value(value, parse_type):
+    """
+    Parsea el valor de la celda.
+    """
+    if parse_type == "int":
+        return int(value)
+    elif parse_type == "booleano":
+        return bool(value)
+    elif parse_type == "date":
+        return value.strftime('%Y-%m-%d')
+    else:
+        return value
+
+def prepare_payload(row, structure):
+    """
+    Crea el payload para la petición.
+    """
+    payload = {}
+    try:
+        for key, config in structure.items():
+            file_name_column = config.get('file_name_column')
+
+            value = row[file_name_column]
+
+            if pd.isna(value) or value is None:
+                if not config.get("required"):
+                    continue
+                else:                    
+                    raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
+
+            parse_type = config.get("parse")
+            value = parse_value(value, parse_type)
+            
+
+            keys = key.split(".")
+            temp = payload
+            for k in keys[:-1]:
+                if k not in temp:
+                    temp[k] = {}
+                temp = temp[k]
+            temp[keys[-1]] = value
+
+
+        print(payload)
+        return payload
+    
+    except Exception as ex:
+        print(f"Error al preparar el payload. : {str(ex)}")
+
+
+def send_request(payload, url: str) -> bool:
+    """
+    Envia cada fila de la tabla al endpoint.
+    """
+    try:
+        response = requests.post(url, json=payload)
+        return response.status_code in [200, 201]
+
+    except Exception as ex:
+        print(f"Error al enviar la petición. : {str(ex)}")
+        return False
+
+def process_file(df: pd.DataFrame, structure: dict, url: str):
+    """
+    Procesa cada fila de la tabla.
+    """
+    try:
+        for index, row in df.iterrows():
+
+            payload = prepare_payload(row, structure)
+            success = send_request(payload, url)
+            if success:
+                print(f"Fila {index} registrada correctamente.")
+            else:
+                print(f"Error fila {index} no se pudo registrar.")
+
+    except Exception as ex:
+        print(f"Error al procesar el archivo. : {str(ex)}")
 
 def lambda_handler(event, context):
     try:
@@ -62,49 +185,49 @@ def lambda_handler(event, context):
             body, error = parse_body(event)
             if error is None:
                 # Implementa tu código para registrar los datos del archivo
-                archivo_base64 = body.get("base64data")
-                if not archivo_base64:
+                base64_file = body.get("base64data")
+                if not base64_file:
                     return format_response(
                         None,
                         "Archivo base64 no encontrado",
+                        400,  
+                        False
+                    )
+                
+                decoded_file = decode_base64(base64_file)
+                df = read_file(decoded_file)
+                if df is None:
+                   return format_response(
+                       None,
+                       "Error al leer el archivo.",
+                       500,
+                       False
+                   )
+                
+                service = body.get("service")
+                endpoint = body.get("endpoint")
+                structure = body.get("structure")
+
+                if not service or not endpoint or not structure:
+                    return format_response(
+                        None,
+                        "Faltan parametros en la estructura",
                         400,
                         False
                     )
-                #Decodificar base64
-                archivo_decodificado = base64.b64decode(archivo_base64)
-                archivo_en_memoria = io.BytesIO(archivo_decodificado)
-
-                #leer el archivo
-                df = pd.read_excel(archivo_en_memoria)
-                df = df.dropna(how='all')
                 
-                print(df)
-
-                url = "https://fde7-170-78-41-251.ngrok-free.app/v1/periodos-rol-usuarios/"
-
-                for index, row in df.iterrows():
-                    if row.isnull().any():
-                        print(f"Fila {index} contiene celdas vacías.")
-                        continue
-
-                    fecha_inicio = row['FechaInicio'].strftime('%Y-%m-%d')
-                    fecha_fin = row['FechaFin'].strftime('%Y-%m-%d')
-
-                    payload ={
-                        "FechaInicio": fecha_inicio,
-                        "FechaFin": fecha_fin,
-                        "Finalizado": row["Finalizado"],
-                        "RolId": {"Id": int(row["Rol"])},
-                        "UsuarioId": {"Id": int(row["Usuario"])}
-                    }
-
-                    response = requests.post(url, json=payload)
-
-                    if response.status_code in [200, 201]:
-                        print(f"Fila {index} registrada correctamente.")
-                    else:
-                        print(f"Error fila {index} no se pudo registrar, estado: {response.status_code}.")    
+                if not validate_data(df, structure):
+                    return format_response(
+                        None,
+                        "Las columnas del archivo no coinciden con la estructura esperada.",
+                        400,
+                        False
+                    )
                 
+                url = build_url(service, endpoint)
+                print(url)
+                process_file(df, structure, url)
+
                 return format_response(
                     None,
                     "Documento procesado correctamente",
