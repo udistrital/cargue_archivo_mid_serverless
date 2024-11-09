@@ -71,7 +71,7 @@ def read_file(file: io.BytesIO) ->tuple:
     try:
         df = pd.read_excel(file)
         df = df.dropna(how='all')
-        print(df)
+        print("DataFrame:\n", df.head())
         return df, None
     except Exception as ex:
         return None, f"Error al leer el archivo: {str(ex)}"
@@ -100,9 +100,24 @@ def build_url (service: str, endpoint: str) -> tuple:
         return url, None
     except Exception as ex:
         return None, f"Error al construir la URL: {str(ex)}"
+
+def map_value(value, mapping):
+    """
+    Mapea el valor de la estructura si es necesario.
+    """
+    try:
+        if isinstance(value, str):
+            mapped_value = mapping.get(value.lower())
+        else:
+            mapped_value = value
+        if mapped_value is None:
+            raise ValueError(f"Valor '{value}' no encontrado.")
+        return mapped_value, None
+    except Exception as ex:
+        return None, f"Error en el mapeo del valor '{value}': {str(ex)}" 
     
 
-def parse_value(value, parse_type):
+def parse_value(value, parse_type, mapping = None):
     """
     Parsea el valor de la celda.
     """
@@ -117,6 +132,17 @@ def parse_value(value, parse_type):
             return value, None
     except Exception as ex:
         return None, f"Error en conversión del valor '{value}': {str(ex)}"
+    
+def add_complement(payload: dict, complement: dict) -> tuple:
+    """
+    Agrega datos adicionales al payload si es necesario.
+    """
+    try:
+        if complement:
+            payload.update(complement)
+        return payload, None
+    except Exception as ex:
+        return None, f"Error al agregar complemento al payload: {str(ex)}"
 
 def prepare_payload(row, structure) -> tuple:
     """
@@ -134,11 +160,18 @@ def prepare_payload(row, structure) -> tuple:
                     continue
                 else:                    
                     raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
+                
 
-            parse_type = config.get("parse")
-            value, error = parse_value(value, parse_type)
-            if error:
-                return None, error            
+            mapping = config.get("mapping")
+            if mapping:
+                value, error = map_value(value, mapping)
+                if error:
+                    return None, error
+            else:
+                parse_type = config.get("parse_type")
+                value, error = parse_value(value, parse_type, mapping)
+                if error:
+                    return None, error            
 
             keys = key.split(".")
             temp = payload
@@ -148,7 +181,6 @@ def prepare_payload(row, structure) -> tuple:
                 temp = temp[k]
             temp[keys[-1]] = value
 
-        print(payload)
         return payload, None
     
     except Exception as ex:
@@ -166,7 +198,7 @@ def send_request(payload, url: str) -> tuple:
     except Exception as ex:
         return False, f"Error al enviar la petición: {str(ex)}"
 
-def process_file(df: pd.DataFrame, structure: dict, url: str) -> tuple:
+def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) -> tuple:
     """
     Procesa cada fila de la tabla.
     """
@@ -175,6 +207,11 @@ def process_file(df: pd.DataFrame, structure: dict, url: str) -> tuple:
     
     for index, row in df.iterrows():
         payload, error = prepare_payload(row, structure)
+        if error:
+            error_details.append({"Idx": index, "Error": error})
+            continue
+
+        payload, error = add_complement(payload, complement)
         if error:
             error_details.append({"Idx": index, "Error": error})
             continue
@@ -229,6 +266,7 @@ def lambda_handler(event, context):
             service = body.get("service")
             endpoint = body.get("endpoint")
             structure = body.get("structure")
+            complement = body.get("complement", {})
 
             if not service or not endpoint or not structure:
                 return format_response(
@@ -257,7 +295,7 @@ def lambda_handler(event, context):
                     False
                 )
             
-            result, process_error = process_file(df, structure, url)
+            result, process_error = process_file(df, structure, url, complement)
             if process_error:
                 return format_response(
                     None,
