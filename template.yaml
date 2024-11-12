@@ -8,10 +8,10 @@ Description: >
 Globals:
   Function:
     Timeout: 60
-    MemorySize: 80
+    MemorySize: 128
 
 Resources:
-  HelloWorldFunction:
+  LoadFileFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: registrar_datos_archivo/
@@ -28,19 +28,8 @@ Resources:
           Properties:
             Path: /registro-datos-archivo
             Method: POST
-        OptionsProcess: # No desplegar este event
-          Type: Api
-          Properties:
-            Path: /registro-datos-archivo
-            Method: OPTIONS
 
 Outputs:
-  HelloWorldAPI:
-    Description: API Gateway endpoint URL for Prod environment for First Function
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunction:
-    Description: First Lambda Function ARN
-    Value: !GetAtt HelloWorldFunction.Arn
-  HelloWorldFunctionIamRole:
-    Description: Implicit IAM Role created for Hello World function
-    Value: !GetAtt HelloWorldFunctionRole.Arn
+  LoadFileAPI:
+    Description: API Gateway endpoint URL for test environment
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"

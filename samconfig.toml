@@ -3,7 +3,7 @@
 version = 0.1
 
 [default.global.parameters]
-stack_name = "sam_prueba"
+stack_name = "prueba_load_file_serverless"
 
 [default.build.parameters]
 cached = true
