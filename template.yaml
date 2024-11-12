@@ -31,11 +31,5 @@ Resources:
 
 Outputs:
   LoadFileAPI:
-    Description: API Gateway endpoint URL for Prod environment for First Function
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  LoadFileFunction:
-    Description: First Lambda Function ARN
-    Value: !GetAtt HelloWorldFunction.Arn
-  LoadFileFunctionIamRole:
-    Description: Implicit IAM Role created for Hello World function
-    Value: !GetAtt HelloWorldFunctionRole.Arn
+    Description: API Gateway endpoint URL for test environment
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
