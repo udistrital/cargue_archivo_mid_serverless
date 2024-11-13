@@ -154,11 +154,23 @@ def add_complement(payload: dict, complement: dict) -> tuple:
     except Exception as ex:
         return None, f"Error al agregar complemento al payload: {str(ex)}"
     
-def get_columns(row, column_names) :
+def get_columns(row, column_names, mapping) :
     """
-     Extrae los nombres de las columnas que tienen datos en una fila.
+     Extrae los nombres de las columnas que tienen datos en una fila y los mapea.
     """
-    return [col for col in column_names if pd.notna(row.get(col))and row.get(col) != ""]
+    selected_columns = []
+    try:
+        for column_name in column_names:
+            if not pd.isna(row.get(column_name))and row.get(column_name) != "":
+                mapped_value = mapping.get(column_name)
+                if mapped_value is not None:
+                    selected_columns.append(mapped_value)
+                else:
+                    selected_columns.append(column_name)
+        return selected_columns
+    except Exception as ex:
+        return None, f"Error al procesar las columnas: {str(ex)}"
+    
     
 
 def prepare_payload(row, structure) -> tuple:
@@ -169,9 +181,11 @@ def prepare_payload(row, structure) -> tuple:
     try:
         for key, config in structure.items():
             if "column_group" in config:
-                column_names = config.get("column_group", [])
-                non_empty_columns = get_columns(row, column_names)
-                payload[key] = non_empty_columns
+                column_names = config["column_group"]
+                mapping = config.get("mapping",{})
+
+                selected_columns = get_columns(row, column_names, mapping)
+                payload[key] = selected_columns
                 continue
 
             file_name_column = config.get('file_name_column')
@@ -183,10 +197,9 @@ def prepare_payload(row, structure) -> tuple:
                 else:                    
                     raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
                 
-
             mapping = config.get("mapping")
             if mapping:
-                value, error = map_value(value, mapping)
+                value, error = map_value(value, mapping)                
                 if error:
                     return None, error
             else:
