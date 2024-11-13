@@ -71,6 +71,7 @@ def read_file(file: io.BytesIO) ->tuple:
     try:
         df = pd.read_excel(file)
         df = df.dropna(how='all')
+        df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
         print("DataFrame:\n", df.head())
         return df, None
     except Exception as ex:
@@ -86,9 +87,9 @@ def validate_data(df: pd.DataFrame, structure: dict) -> tuple:
         if file_name_column:
             expected_columns.add(file_name_column)
         
-        nombre_columnas = config.get('nombre_columnas')
-        if nombre_columnas:
-            expected_columns.update(nombre_columnas)
+        column_group = config.get('column_group')
+        if column_group:
+            expected_columns.update(column_group)
     
     file_columns = set(df.columns)
 
@@ -157,7 +158,7 @@ def get_columns(row, column_names) :
     """
      Extrae los nombres de las columnas que tienen datos en una fila.
     """
-    return [col for col in column_names if pd.notna(row.get(col))]
+    return [col for col in column_names if pd.notna(row.get(col))and row.get(col) != ""]
     
 
 def prepare_payload(row, structure) -> tuple:
@@ -167,14 +168,13 @@ def prepare_payload(row, structure) -> tuple:
     payload = {}
     try:
         for key, config in structure.items():
-            if key == "cronograma_ids":
-                column_names = config.get("nombre_columnas", [])
+            if "column_group" in config:
+                column_names = config.get("column_group", [])
                 non_empty_columns = get_columns(row, column_names)
                 payload[key] = non_empty_columns
                 continue
 
             file_name_column = config.get('file_name_column')
-
             value = row.get(file_name_column)
 
             if pd.isna(value) or value is None:
