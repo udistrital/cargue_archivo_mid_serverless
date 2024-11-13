@@ -71,6 +71,7 @@ def read_file(file: io.BytesIO) ->tuple:
     try:
         df = pd.read_excel(file)
         df = df.dropna(how='all')
+        df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
         print("DataFrame:\n", df.head())
         return df, None
     except Exception as ex:
@@ -78,11 +79,20 @@ def read_file(file: io.BytesIO) ->tuple:
     
 def validate_data(df: pd.DataFrame, structure: dict) -> tuple:
     """
-    Verifica que las columnas en el archivo coincidan con las de la estructura.
-    """    
-    expected_columns = set([config.get('file_name_column') for config in structure.values()])
-    file_columns = set(df.columns)
+    Verifica que las columnas en el archivo coincidan con las de la estructura.    """    
+
+    expected_columns = set()
+    for config in structure.values():
+        file_name_column = config.get('file_name_column')
+        if file_name_column:
+            expected_columns.add(file_name_column)
+        
+        column_group = config.get('column_group')
+        if column_group:
+            expected_columns.update(column_group)
     
+    file_columns = set(df.columns)
+
     missing_columns = expected_columns - file_columns
 
     if missing_columns:
@@ -143,6 +153,13 @@ def add_complement(payload: dict, complement: dict) -> tuple:
         return payload, None
     except Exception as ex:
         return None, f"Error al agregar complemento al payload: {str(ex)}"
+    
+def get_columns(row, column_names) :
+    """
+     Extrae los nombres de las columnas que tienen datos en una fila.
+    """
+    return [col for col in column_names if pd.notna(row.get(col))and row.get(col) != ""]
+    
 
 def prepare_payload(row, structure) -> tuple:
     """
@@ -151,8 +168,13 @@ def prepare_payload(row, structure) -> tuple:
     payload = {}
     try:
         for key, config in structure.items():
-            file_name_column = config.get('file_name_column')
+            if "column_group" in config:
+                column_names = config.get("column_group", [])
+                non_empty_columns = get_columns(row, column_names)
+                payload[key] = non_empty_columns
+                continue
 
+            file_name_column = config.get('file_name_column')
             value = row.get(file_name_column)
 
             if pd.isna(value) or value is None:
@@ -168,7 +190,7 @@ def prepare_payload(row, structure) -> tuple:
                 if error:
                     return None, error
             else:
-                parse_type = config.get("parse_type")
+                parse_type = config.get("parse")
                 value, error = parse_value(value, parse_type, mapping)
                 if error:
                     return None, error            
@@ -180,7 +202,7 @@ def prepare_payload(row, structure) -> tuple:
                     temp[k] = {}
                 temp = temp[k]
             temp[keys[-1]] = value
-
+        
         return payload, None
     
     except Exception as ex:
@@ -204,7 +226,7 @@ def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) 
     """
     correct_indices = []
     error_details = []
-    
+
     for index, row in df.iterrows():
         payload, error = prepare_payload(row, structure)
         if error:
@@ -215,6 +237,8 @@ def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) 
         if error:
             error_details.append({"Idx": index, "Error": error})
             continue
+
+        print("Payload:\n", payload)
 
         success, send_error = send_request(payload, url)
         if success:
