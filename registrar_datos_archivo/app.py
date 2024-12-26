@@ -71,6 +71,7 @@ def read_file(file: io.BytesIO) ->tuple:
     try:
         df = pd.read_excel(file)
         df = df.dropna(how='all')
+        df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
         print("DataFrame:\n", df.head())
         return df, None
     except Exception as ex:
@@ -78,11 +79,20 @@ def read_file(file: io.BytesIO) ->tuple:
     
 def validate_data(df: pd.DataFrame, structure: dict) -> tuple:
     """
-    Verifica que las columnas en el archivo coincidan con las de la estructura.
-    """    
-    expected_columns = set([config.get('file_name_column') for config in structure.values()])
-    file_columns = set(df.columns)
+    Verifica que las columnas en el archivo coincidan con las de la estructura.    """    
+
+    expected_columns = set()
+    for config in structure.values():
+        file_name_column = config.get('file_name_column')
+        if file_name_column:
+            expected_columns.add(file_name_column)
+        
+        column_group = config.get('column_group')
+        if column_group:
+            expected_columns.update(column_group)
     
+    file_columns = set(df.columns)
+
     missing_columns = expected_columns - file_columns
 
     if missing_columns:
@@ -107,9 +117,10 @@ def map_value(value, mapping):
     """
     try:
         if isinstance(value, str):
-            mapped_value = mapping.get(value.lower())
+            mapped_value = mapping.get(value)
         else:
             mapped_value = value
+        print(f"mapped_value: {mapped_value}")
         if mapped_value is None:
             raise ValueError(f"Valor '{value}' no encontrado.")
         return mapped_value, None
@@ -143,6 +154,25 @@ def add_complement(payload: dict, complement: dict) -> tuple:
         return payload, None
     except Exception as ex:
         return None, f"Error al agregar complemento al payload: {str(ex)}"
+    
+def get_columns(row, column_names, mapping) :
+    """
+     Extrae los nombres de las columnas que tienen datos en una fila y los mapea.
+    """
+    selected_columns = []
+    try:
+        for column_name in column_names:
+            if not pd.isna(row.get(column_name))and row.get(column_name) != "":
+                mapped_value = mapping.get(column_name)
+                if mapped_value is not None:
+                    selected_columns.append(mapped_value)
+                else:
+                    selected_columns.append(column_name)
+        return selected_columns
+    except Exception as ex:
+        return None, f"Error al procesar las columnas: {str(ex)}"
+    
+    
 
 def prepare_payload(row, structure) -> tuple:
     """
@@ -151,24 +181,30 @@ def prepare_payload(row, structure) -> tuple:
     payload = {}
     try:
         for key, config in structure.items():
-            file_name_column = config.get('file_name_column')
+            if "column_group" in config:
+                column_names = config["column_group"]
+                mapping = config.get("mapping",{})
 
+                selected_columns = get_columns(row, column_names, mapping)
+                payload[key] = selected_columns
+                continue
+
+            file_name_column = config.get('file_name_column')
             value = row.get(file_name_column)
 
             if pd.isna(value) or value is None:
                 if not config.get("required"):
                     continue
                 else:                    
-                    raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
+                    raise ValueError(f"El campo '{key}' es requerido y está vacío.")
                 
-
             mapping = config.get("mapping")
             if mapping:
-                value, error = map_value(value, mapping)
+                value, error = map_value(value, mapping)                
                 if error:
                     return None, error
             else:
-                parse_type = config.get("parse_type")
+                parse_type = config.get("parse")
                 value, error = parse_value(value, parse_type, mapping)
                 if error:
                     return None, error            
@@ -180,11 +216,11 @@ def prepare_payload(row, structure) -> tuple:
                     temp[k] = {}
                 temp = temp[k]
             temp[keys[-1]] = value
-
+        
         return payload, None
     
     except Exception as ex:
-        return None, f"Error al preparar el payload: {str(ex)}"
+        return None, f"Error: {str(ex)}"
 
 def send_request(payload, url: str) -> tuple:
     """
@@ -204,23 +240,25 @@ def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) 
     """
     correct_indices = []
     error_details = []
-    
+
     for index, row in df.iterrows():
         payload, error = prepare_payload(row, structure)
         if error:
-            error_details.append({"Idx": index, "Error": error})
+            error_details.append({"Idx": index + 1, "Error": error})
             continue
 
         payload, error = add_complement(payload, complement)
         if error:
-            error_details.append({"Idx": index, "Error": error})
+            error_details.append({"Idx": index + 1, "Error": error})
             continue
+
+        print("Payload:\n", payload)
 
         success, send_error = send_request(payload, url)
         if success:
-            correct_indices.append(index)
+            correct_indices.append(index + 1)
         else:
-            error_details.append({"Idx": index, "Error": send_error})
+            error_details.append({"Idx": index + 1, "Error": send_error})
 
     return {"Correctos": correct_indices, "Erróneos": error_details}, None
 
