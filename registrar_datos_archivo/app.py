@@ -117,9 +117,10 @@ def map_value(value, mapping):
     """
     try:
         if isinstance(value, str):
-            mapped_value = mapping.get(value.lower())
+            mapped_value = mapping.get(value)
         else:
             mapped_value = value
+        print(f"mapped_value: {mapped_value}")
         if mapped_value is None:
             raise ValueError(f"Valor '{value}' no encontrado.")
         return mapped_value, None
@@ -195,7 +196,7 @@ def prepare_payload(row, structure) -> tuple:
                 if not config.get("required"):
                     continue
                 else:                    
-                    raise ValueError(f"El campo '{key}' es requerido y está vacío en la fila.")
+                    raise ValueError(f"El campo '{key}' es requerido y está vacío.")
                 
             mapping = config.get("mapping")
             if mapping:
@@ -219,7 +220,7 @@ def prepare_payload(row, structure) -> tuple:
         return payload, None
     
     except Exception as ex:
-        return None, f"Error al preparar el payload: {str(ex)}"
+        return None, f"Error: {str(ex)}"
 
 def send_request(payload, url: str) -> tuple:
     """
@@ -243,21 +244,21 @@ def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) 
     for index, row in df.iterrows():
         payload, error = prepare_payload(row, structure)
         if error:
-            error_details.append({"Idx": index, "Error": error})
+            error_details.append({"Idx": index + 1, "Error": error})
             continue
 
         payload, error = add_complement(payload, complement)
         if error:
-            error_details.append({"Idx": index, "Error": error})
+            error_details.append({"Idx": index + 1, "Error": error})
             continue
 
         print("Payload:\n", payload)
 
         success, send_error = send_request(payload, url)
         if success:
-            correct_indices.append(index)
+            correct_indices.append(index + 1)
         else:
-            error_details.append({"Idx": index, "Error": send_error})
+            error_details.append({"Idx": index + 1, "Error": send_error})
 
     return {"Correctos": correct_indices, "Erróneos": error_details}, None
 
