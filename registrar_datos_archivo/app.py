@@ -59,6 +59,14 @@ def decode_base64(base64_data: str) -> tuple:
     Decodifica el archivo base64.
     """
     try:
+        if "," in base64_data:
+            base64_data = base64_data.split(",")[-1]
+
+        # Corregir padding faltante
+        missing_padding = len(base64_data) % 4
+        if missing_padding:
+            base64_data += '=' * (4 - missing_padding)
+
         decoded_file = base64.b64decode(base64_data)
         return io.BytesIO(decoded_file), None
     except Exception as ex:
@@ -69,7 +77,10 @@ def read_file(file: io.BytesIO) ->tuple:
     Lee el archivo decodificado en memoria.
     """
     try:
-        df = pd.read_excel(file)
+        if file:
+            file.seek(0)
+        df = pd.read_excel(file, engine='calamine')
+        print("Archivo leído correctamente")
         df = df.dropna(how='all')
         df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
         print("DataFrame:\n", df.head())
