@@ -179,7 +179,7 @@ def separate_map_values(value, mapping, separator: str = "|"):
             mapped_values = []
             errors = ""
             for v in values:
-                mapped_value, error = map_value(v, mapping)
+                mapped_value, error = map_value(v.strip(), mapping)
                 if error:
                     errors += error + ", "
                 else:
