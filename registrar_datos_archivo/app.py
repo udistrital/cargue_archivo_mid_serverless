@@ -1,17 +1,23 @@
-import json
-import os
 import base64
 import io
+import json
+import logging
+import os
+
 import pandas as pd
 import requests
+
+logger = logging.getLogger()
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
 
 def get_headers():
     return {
         "Access-Control-Allow-Origin": "http://localhost:4200",
-        "Access-Control-Allow-Methods": " POST, OPTIONS",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
     }
+
 
 def parse_body(event) -> tuple:
     """
@@ -20,8 +26,9 @@ def parse_body(event) -> tuple:
     try:
         return json.loads(event["body"]), None
     except Exception as ex:
-        print(f"Error in parse_body - lambda 'registrar_datos_archivo'. Details: {str(ex)}")
+        logger.error(f"Error in parse_body - lambda 'registrar_datos_archivo'. Details: {str(ex)}")
         return None, f"Error en el cuerpo de la solicitud: {str(ex)}"
+
 
 def format_response(result, message: str, status_code: int, success: bool) -> dict:
     """
@@ -35,24 +42,18 @@ def format_response(result, message: str, status_code: int, success: bool) -> di
             Data: No es agregado en caso de un error en las peticiones, contiene un
             diccionario con el resultado de la petición
     """
-    body = {
-        "Success": success,
-        "Status": status_code,
-        "Message": message
-    }
+    body = {"Success": success, "Status": status_code, "Message": message}
     if success:
         body["Data"] = result
 
-    response = {
-        "statusCode": status_code,
-        "body": json.dumps(body)
-    }
+    response = {"statusCode": status_code, "body": json.dumps(body)}
 
-    is_local = os.environ.get('IS_LOCAL', None)
+    is_local = os.environ.get("IS_LOCAL", None)
     if is_local:
         headers = get_headers()
-        response['headers'] = headers
+        response["headers"] = headers
     return response
+
 
 def decode_base64(base64_data: str) -> tuple:
     """
@@ -65,43 +66,48 @@ def decode_base64(base64_data: str) -> tuple:
         # Corregir padding faltante
         missing_padding = len(base64_data) % 4
         if missing_padding:
-            base64_data += '=' * (4 - missing_padding)
+            base64_data += "=" * (4 - missing_padding)
 
         decoded_file = base64.b64decode(base64_data)
         return io.BytesIO(decoded_file), None
     except Exception as ex:
+        logger.error(f"Error al decodificar archivo base64: {str(ex)}")
         return None, f"Error al decodificar archivo base64: {str(ex)}"
 
-def read_file(file: io.BytesIO) ->tuple:
+
+def read_file(file: io.BytesIO) -> tuple:
     """
     Lee el archivo decodificado en memoria.
     """
     try:
         if file:
             file.seek(0)
-        df = pd.read_excel(file, engine='calamine')
-        print("Archivo leído correctamente")
-        df = df.dropna(how='all')
+        df = pd.read_excel(file, engine="calamine")
+        logger.info("Archivo leído correctamente")
+        df = df.dropna(how="all")
         df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
-        print("DataFrame:\n", df.head())
+        logger.debug("DataFrame:\n%s", df.head())
         return df, None
     except Exception as ex:
+        logger.error(f"Error al leer el archivo: {str(ex)}")
         return None, f"Error al leer el archivo: {str(ex)}"
-    
+
+
 def validate_data(df: pd.DataFrame, structure: dict) -> tuple:
     """
-    Verifica que las columnas en el archivo coincidan con las de la estructura.    """    
+    Verifica que las columnas en el archivo coincidan con las de la estructura.
+    """
 
     expected_columns = set()
     for config in structure.values():
-        file_name_column = config.get('file_name_column')
+        file_name_column = config.get("file_name_column")
         if file_name_column:
             expected_columns.add(file_name_column)
-        
-        column_group = config.get('column_group')
+
+        column_group = config.get("column_group")
         if column_group:
             expected_columns.update(column_group)
-    
+
     file_columns = set(df.columns)
 
     missing_columns = expected_columns - file_columns
@@ -109,8 +115,9 @@ def validate_data(df: pd.DataFrame, structure: dict) -> tuple:
     if missing_columns:
         return False, f"Faltan las siguientes columnas en el archivo: {missing_columns}"
     return True, None
-    
-def build_url (service: str, endpoint: str) -> tuple:
+
+
+def build_url(service: str, endpoint: str) -> tuple:
     """
     Construye la URL para la petición.
     """
@@ -120,7 +127,9 @@ def build_url (service: str, endpoint: str) -> tuple:
         url = f"{service.rstrip('/')}/{endpoint.lstrip('/')}"
         return url, None
     except Exception as ex:
+        logger.error(f"Error al construir la URL: {str(ex)}")
         return None, f"Error al construir la URL: {str(ex)}"
+
 
 def map_value(value, mapping):
     """
@@ -131,15 +140,16 @@ def map_value(value, mapping):
             mapped_value = mapping.get(value)
         else:
             mapped_value = value
-        print(f"mapped_value: {mapped_value}")
+        logger.debug("mapped_value: %s", mapped_value)
         if mapped_value is None:
             raise ValueError(f"Valor '{value}' no encontrado.")
         return mapped_value, None
     except Exception as ex:
-        return None, f"Error en el mapeo del valor '{value}': {str(ex)}" 
-    
+        logger.error(f"Error en el mapeo del valor '{value}': {str(ex)}")
+        return None, f"Error en el mapeo del valor '{value}': {str(ex)}"
 
-def parse_value(value, parse_type, mapping = None):
+
+def parse_value(value, parse_type):
     """
     Parsea el valor de la celda.
     """
@@ -149,12 +159,59 @@ def parse_value(value, parse_type, mapping = None):
         elif parse_type == "booleano":
             return bool(value), None
         elif parse_type == "date":
-            return value.strftime('%Y-%m-%d'), None
+            return value.strftime("%Y-%m-%d"), None
         else:
             return value, None
     except Exception as ex:
+        logger.error(f"Error en conversión del valor '{value}': {str(ex)}")
         return None, f"Error en conversión del valor '{value}': {str(ex)}"
-    
+
+
+def separate_map_values(value, mapping, separator: str = "|"):
+    """
+    Separa los valores de la celda y los mapea si es necesario.
+    """
+    try:
+        if separator is None:
+            separator = "|"
+        if isinstance(value, str):
+            values = value.split(separator)
+            mapped_values = []
+            errors = ""
+            for v in values:
+                mapped_value, error = map_value(v, mapping)
+                if error:
+                    errors += error + ", "
+                else:
+                    mapped_values.append(mapped_value)
+            if errors:
+                return None, errors
+            return mapped_values, None
+        else:
+            return value, None
+    except Exception as ex:
+        logger.error(f"Error al separar los valores: {str(ex)}")
+        return None, f"Error al separar los valores: {str(ex)}"
+
+
+def set_multilevel_value(payload: dict, key: str, value):
+    """
+    Establece un valor en un payload multinivel.
+    """
+    try:
+        keys = key.split(".")
+        temp = payload
+        for k in keys[:-1]:
+            if k not in temp:
+                temp[k] = {}
+            temp = temp[k]
+        temp[keys[-1]] = value
+        return payload, None
+    except Exception as ex:
+        logger.error(f"Error al establecer el set_multilevel_value: {str(ex)}")
+        return None, f"Error al establecer el valor anidado: {str(ex)}"
+
+
 def add_complement(payload: dict, complement: dict) -> tuple:
     """
     Agrega datos adicionales al payload si es necesario.
@@ -164,16 +221,18 @@ def add_complement(payload: dict, complement: dict) -> tuple:
             payload.update(complement)
         return payload, None
     except Exception as ex:
+        logger.error(f"Error al agregar complemento al payload: {str(ex)}")
         return None, f"Error al agregar complemento al payload: {str(ex)}"
-    
-def get_columns(row, column_names, mapping) :
+
+
+def get_columns(row, column_names, mapping):
     """
-     Extrae los nombres de las columnas que tienen datos en una fila y los mapea.
+    Extrae los nombres de las columnas que tienen datos en una fila y los mapea.
     """
     selected_columns = []
     try:
         for column_name in column_names:
-            if not pd.isna(row.get(column_name))and row.get(column_name) != "":
+            if not pd.isna(row.get(column_name)) and row.get(column_name) != "":
                 mapped_value = mapping.get(column_name)
                 if mapped_value is not None:
                     selected_columns.append(mapped_value)
@@ -181,9 +240,9 @@ def get_columns(row, column_names, mapping) :
                     selected_columns.append(column_name)
         return selected_columns
     except Exception as ex:
+        logger.error(f"Error al procesar las columnas: {str(ex)}")
         return None, f"Error al procesar las columnas: {str(ex)}"
-    
-    
+
 
 def prepare_payload(row, structure) -> tuple:
     """
@@ -194,44 +253,51 @@ def prepare_payload(row, structure) -> tuple:
         for key, config in structure.items():
             if "column_group" in config:
                 column_names = config["column_group"]
-                mapping = config.get("mapping",{})
+                mapping = config.get("mapping", {})
 
                 selected_columns = get_columns(row, column_names, mapping)
                 payload[key] = selected_columns
                 continue
 
-            file_name_column = config.get('file_name_column')
+            file_name_column = config.get("file_name_column")
             value = row.get(file_name_column)
 
             if pd.isna(value) or value is None:
                 if not config.get("required"):
                     continue
-                else:                    
+                else:
                     raise ValueError(f"El campo '{key}' es requerido y está vacío.")
-                
+
+            separator = config.get("separator")
+            if separator:
+                mapping = config.get("mapping")
+                values, error = separate_map_values(value, mapping, separator)
+                if error:
+                    return None, error
+                payload[key] = values
+                continue
+
             mapping = config.get("mapping")
             if mapping:
-                value, error = map_value(value, mapping)                
+                value, error = map_value(value, mapping)
                 if error:
                     return None, error
             else:
                 parse_type = config.get("parse")
-                value, error = parse_value(value, parse_type, mapping)
-                if error:
-                    return None, error            
+                if parse_type:
+                    value, error = parse_value(value, parse_type)
+                    if error:
+                        return None, error
 
-            keys = key.split(".")
-            temp = payload
-            for k in keys[:-1]:
-                if k not in temp:
-                    temp[k] = {}
-                temp = temp[k]
-            temp[keys[-1]] = value
-        
+            payload, error = set_multilevel_value(payload, key, value)
+            if error:
+                return None, error
+
         return payload, None
-    
     except Exception as ex:
+        logger.error(f"Error al preparar el payload: {str(ex)}")
         return None, f"Error: {str(ex)}"
+
 
 def send_request(payload, url: str) -> tuple:
     """
@@ -239,11 +305,14 @@ def send_request(payload, url: str) -> tuple:
     """
     try:
         response = requests.post(url, json=payload)
+        response.raise_for_status()
         if response.status_code not in [200, 201]:
             return False, f"Error al enviar la petición:{response.status_code} - {response.text}"
         return True, None
     except Exception as ex:
+        logger.error(f"Error al enviar la petición: {str(ex)}")
         return False, f"Error al enviar la petición: {str(ex)}"
+
 
 def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) -> tuple:
     """
@@ -263,7 +332,7 @@ def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) 
             error_details.append({"Idx": index + 1, "Error": error})
             continue
 
-        print("Payload:\n", payload)
+        logger.debug(f"Payload: {payload}")
 
         success, send_error = send_request(payload, url)
         if success:
@@ -271,115 +340,63 @@ def process_file(df: pd.DataFrame, structure: dict, url: str, complement: dict) 
         else:
             error_details.append({"Idx": index + 1, "Error": send_error})
 
+    if error_details:
+        logger.error(f"Errores al procesar el archivo: {error_details}")
+
     return {"Correctos": correct_indices, "Erróneos": error_details}, None
+
 
 def lambda_handler(event, context):
     try:
-        http_method = event['httpMethod']
-        if http_method == 'POST':
+        http_method = event["httpMethod"]
+        if http_method == "POST":
             body, error = parse_body(event)
             if error:
-                return format_response(
-                    None,    
-                    error, 
-                    400, 
-                    False
-                )
-            
+                return format_response(None, error, 400, False)
+
             base64_file = body.get("base64data")
             if not base64_file:
-                return format_response(
-                    None,
-                    "Archivo base64 no encontrado",
-                    400,  
-                    False
-                )
-                
+                return format_response(None, "Archivo base64 no encontrado", 400, False)
+
             decoded_file, decode_error = decode_base64(base64_file)
             if decode_error:
-                return format_response(
-                    None,
-                    decode_error,
-                    400,
-                    False 
-                )
+                return format_response(None, decode_error, 400, False)
             df, read_error = read_file(decoded_file)
             if read_error:
-                return format_response(
-                    None,
-                    read_error,
-                    500,
-                    False
-                )
-                
+                return format_response(None, read_error, 500, False)
+
             service = body.get("service")
             endpoint = body.get("endpoint")
             structure = body.get("structure")
             complement = body.get("complement", {})
 
             if not service or not endpoint or not structure:
-                return format_response(
-                    None,
-                    "Faltan parametros en la estructura",
-                    400,
-                    False
-                )
-            
+                return format_response(None, "Faltan parametros en la estructura", 400, False)
+
             url, url_error = build_url(service, endpoint)
-            print(url)
+            logger.info(f"URL: {url}")
             if url_error:
-                return format_response(
-                    None,
-                    url_error,
-                    400,
-                    False
-                )
-            
+                return format_response(None, url_error, 400, False)
+
             valid, validate_error = validate_data(df, structure)
             if not valid:
-                return format_response(
-                    None,
-                    validate_error,
-                    400,
-                    False
-                )
-            
+                return format_response(None, validate_error, 400, False)
+
             result, process_error = process_file(df, structure, url, complement)
             if process_error:
-                return format_response(
-                    None,
-                    process_error,
-                    500,
-                    False
-                )
-            
-            message = "Documento procesado correctamente" if not result ["Erróneos"] else "Documento procesado con algunos registros por revisar"
-            return format_response(
-                result,
-                message,
-                201 if not result ["Erróneos"] else 206,
-                True
-            )
+                return format_response(None, process_error, 500, False)
 
-        elif http_method == 'OPTIONS':
-            return format_response(
-                None,
-                "OK",
-                200,
-                True
+            message = (
+                "Documento procesado correctamente"
+                if not result["Erróneos"]
+                else "Documento procesado con algunos registros por revisar"
             )
+            return format_response(result, message, 201 if not result["Erróneos"] else 206, True)
+
+        elif http_method == "OPTIONS":
+            return format_response(None, "OK", 200, True)
         else:
-            return format_response(
-                None,
-                "Metodo no permitido",
-                405,
-                False
-            )
+            return format_response(None, "Metodo no permitido", 405, False)
     except Exception as e:
-        print(f"Error in lambda_handler - lambda 'registrar_datos_archivo'. Details: {str(e)}")
-        return format_response(
-            None,
-            "Error registrando los datos del archivo",
-            500,
-            False
-        )
+        logger.error(f"Error in lambda_handler - lambda 'registrar_datos_archivo'. Details: {str(e)}")
+        return format_response(None, "Error registrando los datos del archivo", 500, False)
