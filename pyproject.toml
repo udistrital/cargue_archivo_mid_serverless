@@ -1,0 +1,32 @@
+[project]
+name = "cargue-archivo-mid-serverless"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=3.0.2",
+    "python-calamine>=0.6.2",
+    "requests>=2.33.1",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.10",
+]
+
+
+[tool.ruff]
+# Ajusta la longitud de línea a tu gusto
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Habilita reglas de Pyflakes (F) y Pycodestyle (E)
+select = ["E", "F", "I"] # "I" es para organizar imports automáticamente
+fixable = ["ALL"]
+
+[tool.ruff.format]
+# Configuración del formateador (estilo similar a Black)
+quote-style = "double"
+indent-style = "space"

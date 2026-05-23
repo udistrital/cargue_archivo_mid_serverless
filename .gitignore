@@ -2,8 +2,6 @@
 
 *__pycache__/
 
-*.toml
-
 # IDEs
 .idea/
 
