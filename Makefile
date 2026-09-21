@@ -1,4 +1,4 @@
 .PHONY: build
 
 build:
-	sam build
+	sam build --beta-features

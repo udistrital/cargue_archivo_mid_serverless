@@ -13,6 +13,8 @@ Globals:
 Resources:
   LoadFileFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: python-uv
     Properties:
       CodeUri: registrar_datos_archivo/
       Handler: app.lambda_handler

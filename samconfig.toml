@@ -1,0 +1,7 @@
+version = 0.1
+
+[default.global.parameters]
+beta_features = true
+
+[default.build.parameters]
+manifest = "pyproject.toml"
